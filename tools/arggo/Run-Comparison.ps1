@@ -18,9 +18,12 @@ param(
     [string[]]$Tasks = @(),       # default: all 12 new public tasks
     [int]$Repeats = 1,
     [string]$RepoPath = "$env:USERPROFILE\bcbench-work\BCApps",
+    [string]$AgentName = 'ALBugFix',   # entry agent for plugin condition (ALTest for test-generation)
     [switch]$AlMcp                # add --al-mcp (AL MCP server lever)
 )
-$ErrorActionPreference = 'Stop'
+# 'Continue', not 'Stop': under PS 5.1 + EAP=Stop, native stderr redirected with 2>&1
+# becomes a terminating NativeCommandError (git checkout prints "HEAD is now at" to stderr).
+$ErrorActionPreference = 'Continue'
 $benchDir = Split-Path (Split-Path $PSScriptRoot)   # repo root (tools/arggo/..)
 $configPath = Join-Path $benchDir 'src/bcbench/agent/shared/config.yaml'
 $dataset = Join-Path $benchDir 'dataset/bcbench.jsonl'
@@ -38,10 +41,11 @@ $enabled = if ($Condition -eq 'plugin') { 'true' } else { 'false' }
 $cfg = $cfg -replace '(?s)(instructions:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
 $cfg = $cfg -replace '(?s)(skills:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
 $cfg = $cfg -replace '(?s)(agents:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
+$cfg = $cfg -replace '(?s)(agents:\s*\r?\n\s*enabled:\s*(?:true|false)\s*\r?\n\s*name:\s*)(\S+)', "`${1}$AgentName"
 # IO.File writes UTF-8 WITHOUT BOM. PS 5.1's Set-Content -Encoding utf8 adds a BOM,
 # which breaks the harness's YAML/Jinja loading (and Python JSON elsewhere).
 [IO.File]::WriteAllText($configPath, $cfg)
-"config: condition=$Condition (toggles=$enabled), agent entry=ALBugFix"
+"config: condition=$Condition (toggles=$enabled), agent entry=$AgentName"
 
 $entries = @{}
 Get-Content $dataset | ForEach-Object { $o = $_ | ConvertFrom-Json; $entries[$o.instance_id] = $o }
