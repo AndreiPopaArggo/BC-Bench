@@ -1,0 +1,134 @@
+name: Arggo plugin-vs-vanilla evaluation
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Agent under test
+        required: true
+        type: choice
+        options: [claude, copilot]
+        default: claude
+      condition:
+        description: vanilla (stock agent) or plugin (al-dev-toolkit profile)
+        required: true
+        type: choice
+        options: [vanilla, plugin]
+        default: vanilla
+      model:
+        description: "Model id. Claude Code uses hyphens (claude-sonnet-4-6, claude-haiku-4-5); Copilot CLI uses dots (claude-sonnet-4.6, claude-haiku-4.5)."
+        required: true
+        type: string
+        default: claude-sonnet-4-6
+      entries:
+        description: JSON array of instance ids to evaluate
+        required: true
+        type: string
+        default: '["microsoft__BCApps-7315","microsoft__BCApps-6636","microsoft__BCApps-7133","microsoft__BCApps-7362","microsoft__BCApps-6237","microsoft__BCApps-6386","microsoft__BCApps-6918","microsoft__BCApps-6365","microsoft__BCApps-5254","microsoft__BCApps-4022","microsoft__BCApps-3277","microsoft__BCApps-3135"]'
+      al-mcp:
+        description: Wire the AL MCP server into the agent
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  evaluate:
+    runs-on: windows-latest
+    name: ${{ matrix.entry }} / ${{ inputs.agent }} / ${{ inputs.condition }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        entry: ${{ fromJSON(inputs.entries) }}
+    env:
+      EVALUATION_RESULTS_DIR: evaluation_results
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Python with UV
+        uses: ./.github/actions/setup-python-uv
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Apply condition '${{ inputs.condition }}' to config.yaml
+        shell: pwsh
+        run: |
+          $configPath = Join-Path $PWD 'src/bcbench/agent/shared/config.yaml'
+          $cfg = [IO.File]::ReadAllText($configPath)
+          $enabled = if ('${{ inputs.condition }}' -eq 'plugin') { 'true' } else { 'false' }
+          $cfg = $cfg -replace '(?s)(instructions:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
+          $cfg = $cfg -replace '(?s)(skills:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
+          $cfg = $cfg -replace '(?s)(agents:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
+          $cfg = $cfg -replace '(?s)(agents:\s*\r?\n\s*enabled:\s*(?:true|false)\s*\r?\n\s*name:\s*)(\S+)', "`${1}ALBugFix"
+          # no-BOM write: BOM breaks the harness's YAML/Jinja loading
+          [IO.File]::WriteAllText($configPath, $cfg)
+          Write-Output "condition=${{ inputs.condition }} (toggles=$enabled, entry agent=ALBugFix)"
+
+      - name: Generate BC container name and credentials
+        shell: pwsh
+        run: |
+          $password = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 32 | ForEach-Object { [char]$_ })
+          Write-Output "::add-mask::$password"
+          $containerName = "bcbench-$("${{ matrix.entry }}".Split('-')[1])"
+          "BC_CONTAINER_NAME=$containerName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "BC_SERVER_URL=http://$containerName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "BC_SERVER_INSTANCE=BC" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "BC_SERVER_USERNAME=admin" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "BC_SERVER_PASSWORD=$password" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install BcContainerHelper module
+        shell: pwsh
+        run: Install-Module -Name BcContainerHelper -Force -AllowClobber -AllowPrerelease
+
+      - name: Setup BC container and repository (public repo, no Azure)
+        id: setup-env
+        timeout-minutes: 60
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Output "::add-mask::$env:GITHUB_TOKEN"
+          .\scripts\Setup-ContainerAndRepository.ps1 -InstanceId "${{ matrix.entry }}" -Category "bug-fix"
+
+      - name: Install AL Tool
+        if: ${{ inputs.al-mcp }}
+        shell: pwsh
+        run: |
+          dotnet tool install -g Microsoft.Dynamics.BusinessCentral.Development.Tools --version 18.0.37.11445-beta
+          echo "$HOME\.dotnet\tools" >> $env:GITHUB_PATH
+
+      - name: Install Claude Code
+        if: ${{ inputs.agent == 'claude' }}
+        run: npm install -g @anthropic-ai/claude-code@2.1.160
+
+      - name: Install Copilot CLI
+        if: ${{ inputs.agent == 'copilot' }}
+        run: npm install -g @github/copilot@1.0.57
+
+      - name: Run ${{ inputs.agent }} for entry ${{ matrix.entry }}
+        timeout-minutes: 120
+        shell: pwsh
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          uv run bcbench evaluate "${{ inputs.agent }}" "${{ matrix.entry }}" `
+            --model "${{ inputs.model }}" `
+            --category "bug-fix" `
+            --repo-path "${{ steps.setup-env.outputs.repo_path }}" `
+            --output-dir "${{ env.EVALUATION_RESULTS_DIR }}" `
+            ${{ inputs.al-mcp && '--al-mcp' || '' }}
+
+      - name: Upload evaluation results
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: results-${{ github.run_id }}-${{ inputs.agent }}-${{ inputs.condition }}-${{ matrix.entry }}
+          path: ${{ env.EVALUATION_RESULTS_DIR }}/**
+          retention-days: 30
