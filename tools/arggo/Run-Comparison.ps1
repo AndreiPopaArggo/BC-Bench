@@ -38,7 +38,9 @@ $enabled = if ($Condition -eq 'plugin') { 'true' } else { 'false' }
 $cfg = $cfg -replace '(?s)(instructions:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
 $cfg = $cfg -replace '(?s)(skills:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
 $cfg = $cfg -replace '(?s)(agents:\s*\r?\n\s*enabled:\s*)(true|false)', "`${1}$enabled"
-Set-Content -Path $configPath -Value $cfg -Encoding utf8
+# IO.File writes UTF-8 WITHOUT BOM. PS 5.1's Set-Content -Encoding utf8 adds a BOM,
+# which breaks the harness's YAML/Jinja loading (and Python JSON elsewhere).
+[IO.File]::WriteAllText($configPath, $cfg)
 "config: condition=$Condition (toggles=$enabled), agent entry=ALBugFix"
 
 $entries = @{}
