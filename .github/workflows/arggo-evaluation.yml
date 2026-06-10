@@ -115,7 +115,10 @@ jobs:
         timeout-minutes: 120
         shell: pwsh
         env:
+          # Either credential works for Claude Code: an Anthropic API key, or a
+          # subscription OAuth token generated once with `claude setup-token`.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           uv run bcbench evaluate "${{ inputs.agent }}" "${{ matrix.entry }}" `
