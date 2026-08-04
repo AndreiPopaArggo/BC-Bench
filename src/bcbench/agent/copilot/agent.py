@@ -75,13 +75,11 @@ def run_copilot_agent(
             copilot_cmd,
             "--allow-all-tools",  # required for non-interactive mode
             "--disable-builtin-mcps",
+            f"--model={model}",  # "auto" is a first-class CLI value (verified 1.0.61) mirroring VS Code chat AUTO
             "--log-level=debug",
             f"--log-dir={output_dir.resolve()}",
             f"--prompt={prompt.replace('\r', '').replace('\n', ' ')}",
         ]
-        # "auto" mirrors VS Code chat's AUTO picker: omit --model so the CLI selects.
-        if model != "auto":
-            cmd_args.insert(3, f"--model={model}")
         if effort:
             cmd_args.append(f"--effort={effort}")
         if not instructions_enabled:

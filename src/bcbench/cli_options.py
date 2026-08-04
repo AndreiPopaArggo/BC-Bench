@@ -38,7 +38,7 @@ CopilotModel = Annotated[
         "gpt-5.2-codex",
         "gpt-5.2",
     ],
-    typer.Option(help="Copilot model to use ('auto' omits --model so the CLI selects, mirroring VS Code chat AUTO)"),
+    typer.Option(help="Copilot model to use ('auto' = CLI-native automatic selection, mirroring VS Code chat AUTO)"),
 ]
 
 # Copilot CLI --effort/--reasoning-effort passthrough; None keeps the CLI default.
