@@ -10,6 +10,7 @@ from bcbench.agent.copilot import run_copilot_agent
 from bcbench.cli_options import (
     ClaudeCodeModel,
     ContainerName,
+    CopilotEffort,
     CopilotModel,
     EvaluationCategoryOption,
     OutputDir,
@@ -32,6 +33,7 @@ def run_copilot(
     category: EvaluationCategoryOption,
     container_name: ContainerName = "",
     model: CopilotModel = "claude-haiku-4.5",
+    effort: CopilotEffort = None,
     repo_path: RepoPath = _config.paths.testbed_path,
     output_dir: OutputDir = _config.paths.evaluation_results_path,
     al_mcp: Annotated[bool, typer.Option("--al-mcp", help="Enable AL MCP server")] = False,
@@ -57,6 +59,7 @@ def run_copilot(
         al_mcp=al_mcp if container_name else False,
         al_lsp=al_lsp,
         container_name=container_name,
+        effort=effort,
     )
 
 

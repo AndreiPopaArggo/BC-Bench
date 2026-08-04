@@ -30,6 +30,7 @@ def run_copilot_agent(
     al_mcp: bool = False,
     al_lsp: bool = False,
     container_name: str = "bcbench",
+    effort: str | None = None,
 ) -> tuple[AgentMetrics | None, ExperimentConfiguration]:
     """Run GitHub Copilot CLI agent on a single dataset entry.
 
@@ -63,6 +64,7 @@ def run_copilot_agent(
         skills_enabled=skills_enabled,
         custom_agent=custom_agent,
         plugins=[plugin.record for plugin, _ in plugins] or None,
+        effort=effort,
     )
 
     logger.info(f"Executing Copilot CLI in directory: {repo_path}")
@@ -73,11 +75,15 @@ def run_copilot_agent(
             copilot_cmd,
             "--allow-all-tools",  # required for non-interactive mode
             "--disable-builtin-mcps",
-            f"--model={model}",
             "--log-level=debug",
             f"--log-dir={output_dir.resolve()}",
             f"--prompt={prompt.replace('\r', '').replace('\n', ' ')}",
         ]
+        # "auto" mirrors VS Code chat's AUTO picker: omit --model so the CLI selects.
+        if model != "auto":
+            cmd_args.insert(3, f"--model={model}")
+        if effort:
+            cmd_args.append(f"--effort={effort}")
         if not instructions_enabled:
             cmd_args.append("--no-custom-instructions")
         if mcp_config_json:

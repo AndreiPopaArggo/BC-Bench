@@ -12,6 +12,7 @@ from bcbench.cli_options import (
     ContainerName,
     ContainerPassword,
     ContainerUsername,
+    CopilotEffort,
     CopilotModel,
     EvaluationCategoryOption,
     OutputDir,
@@ -48,6 +49,7 @@ def evaluate_copilot(
     username: ContainerUsername = "",
     password: ContainerPassword = "",
     model: CopilotModel = "claude-haiku-4.5",
+    effort: CopilotEffort = None,
     repo_path: RepoPath = _config.paths.testbed_path,
     output_dir: OutputDir = _config.paths.evaluation_results_path,
     run_id: RunId = "copilot_test_run",
@@ -88,6 +90,7 @@ def evaluate_copilot(
             al_mcp=al_mcp if ctx.container else False,
             al_lsp=al_lsp,
             container_name=ctx.get_container().name if ctx.container else "",
+            effort=effort,
         ),
     )
 

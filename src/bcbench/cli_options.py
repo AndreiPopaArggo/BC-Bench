@@ -25,18 +25,26 @@ EvaluationCategoryOption = Annotated[EvaluationCategory, typer.Option(help="Cate
 
 CopilotModel = Annotated[
     Literal[
+        "auto",
         "claude-sonnet-4.6",
         "claude-haiku-4.5",
         "claude-opus-4.6",
         "claude-opus-4.7",
         "claude-opus-4.8",
+        "gpt-5.6-luna",
         "gpt-5.5",
         "gpt-5.4",
         "gpt-5.3-codex",
         "gpt-5.2-codex",
         "gpt-5.2",
     ],
-    typer.Option(help="Copilot model to use"),
+    typer.Option(help="Copilot model to use ('auto' omits --model so the CLI selects, mirroring VS Code chat AUTO)"),
+]
+
+# Copilot CLI --effort/--reasoning-effort passthrough; None keeps the CLI default.
+CopilotEffort = Annotated[
+    Literal["none", "low", "medium", "high"] | None,
+    typer.Option(help="Copilot reasoning effort (forwarded as --effort)"),
 ]
 
 ClaudeCodeModel = Annotated[
