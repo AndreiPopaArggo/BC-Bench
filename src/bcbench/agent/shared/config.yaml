@@ -103,6 +103,11 @@ agents:
 #   repo:     github only, "owner/repo"
 #   revision: github only, a commit SHA (pinned)
 plugins:
+  # al-dev-toolkit eval branch (Luna-pinned subagents, planner inherits) - arm C lever
+  - name: "al-dev-toolkit"
+    enabled: false
+    source: local
+    path: "C:/Users/AndreiPopa/bcbench-work/al-dev-toolkit-eval"
   - name: "bcbench-example"
     enabled: false
     source: local
