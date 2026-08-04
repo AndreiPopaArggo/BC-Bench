@@ -37,6 +37,11 @@ def run_copilot_agent(
     Returns:
         Tuple of (AgentMetrics, ExperimentConfiguration) with metrics and configuration used during the experiment
     """
+    # Copilot CLI rejects --effort in auto mode (verified 1.0.78: 'Model "auto" does not
+    # support reasoning effort configuration') - effort belongs to pinned-model arms only.
+    if model == "auto" and effort:
+        raise AgentError('--effort cannot be combined with --model auto (the Copilot CLI rejects it); pin a model or drop --effort')
+
     config_file = Path(__file__).parent.parent / "shared" / "config.yaml"
     copilot_config = yaml.safe_load(config_file.read_text())
 
