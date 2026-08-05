@@ -7,6 +7,7 @@ from typing import Annotated, cast
 import typer
 
 from bcbench.agent import BCalBackendConfig, run_bcal_agent, run_claude_code, run_copilot_agent
+from bcbench.arggo_profile import ReviewProfile, resolve_codereview_entry
 from bcbench.cli_options import (
     ClaudeCodeModel,
     ContainerName,
@@ -41,6 +42,15 @@ def _prepare_run_dir(output_dir: Path, run_id: str) -> Path:
     return run_dir
 
 
+def _load_entry(category: "EvaluationCategoryOption", entry_id: str, review_profile: ReviewProfile) -> BaseDatasetEntry:
+    """Load an entry honoring the review profile (code review only; a no-op elsewhere)."""
+    if category == EvaluationCategory.CODE_REVIEW:
+        return resolve_codereview_entry(entry_id, review_profile)
+    if review_profile is not ReviewProfile.UPSTREAM:
+        raise typer.BadParameter(f"--review-profile {review_profile} only applies to the code-review category")
+    return category.entry_class.load(category.dataset_path, entry_id=entry_id)[0]
+
+
 @evaluate_app.command("copilot")
 def evaluate_copilot(
     entry_id: Annotated[str, typer.Argument(help="Entry ID to run")],
@@ -55,13 +65,14 @@ def evaluate_copilot(
     run_id: RunId = "copilot_test_run",
     al_mcp: Annotated[bool, typer.Option("--al-mcp", help="Enable AL MCP server")] = False,
     al_lsp: Annotated[bool, typer.Option("--al-lsp", help="Enable AL LSP server")] = False,
+    review_profile: Annotated[ReviewProfile, typer.Option("--review-profile", help="Code-review scoring profile: upstream (default) or arggo (house-convention golds + allowed-finding overlays)")] = ReviewProfile.UPSTREAM,
 ) -> None:
     """
     Evaluate GitHub Copilot CLI on single dataset entry.
 
     To only run the agent to generate a patch without building/testing, use 'bcbench run copilot' instead.
     """
-    entry = category.entry_class.load(category.dataset_path, entry_id=entry_id)[0]
+    entry = _load_entry(category, entry_id, review_profile)
     run_dir = _prepare_run_dir(output_dir, run_id)
 
     logger.info(f"Running evaluation on entry {entry_id} with GitHub Copilot CLI")
@@ -91,6 +102,7 @@ def evaluate_copilot(
             al_lsp=al_lsp,
             container_name=ctx.get_container().name if ctx.container else "",
             effort=effort,
+            review_profile=review_profile,
         ),
     )
 
@@ -111,13 +123,14 @@ def evaluate_claude_code(
     run_id: RunId = "claude_code_test_run",
     al_mcp: Annotated[bool, typer.Option("--al-mcp", help="Enable AL MCP server")] = False,
     al_lsp: Annotated[bool, typer.Option("--al-lsp", help="Enable AL LSP server")] = False,
+    review_profile: Annotated[ReviewProfile, typer.Option("--review-profile", help="Code-review scoring profile: upstream (default) or arggo (house-convention golds + allowed-finding overlays)")] = ReviewProfile.UPSTREAM,
 ) -> None:
     """
     Evaluate Claude Code on single dataset entry.
 
     To only run the agent to generate a patch without building/testing, use 'bcbench run claude' instead.
     """
-    entry = category.entry_class.load(category.dataset_path, entry_id=entry_id)[0]
+    entry = _load_entry(category, entry_id, review_profile)
     run_dir = _prepare_run_dir(output_dir, run_id)
 
     logger.info(f"Running evaluation on entry {entry_id} with Claude Code")
@@ -146,6 +159,7 @@ def evaluate_claude_code(
             al_mcp=al_mcp if ctx.container else False,
             al_lsp=al_lsp,
             container_name=ctx.get_container().name if ctx.container else "",
+            review_profile=review_profile,
         ),
     )
 

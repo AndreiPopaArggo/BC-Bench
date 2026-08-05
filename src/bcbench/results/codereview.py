@@ -135,6 +135,10 @@ class CodeReviewResult(BaseEvaluationResult):
     matched_comment_count: int = Field(default=0, ge=0)
     missed_comment_count: int = Field(default=0, ge=0)
     incorrect_comment_count: int = Field(default=0, ge=0)
+    # Arggo profile: generated comments matched to the entry's allowed_comments —
+    # defensible-but-optional findings. Neither TP nor FP: excluded from the
+    # precision denominator, never counted as recall. Always 0 upstream.
+    allowed_match_count: int = Field(default=0, ge=0)
 
     precision: float = Field(default=0.0, ge=0.0, le=1.0)
     recall: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -151,11 +155,16 @@ class CodeReviewResult(BaseEvaluationResult):
         expected_comments: list[ReviewComment],
         generated_comments: list[ReviewComment],
         matched_pairs: list[tuple[ReviewComment, ReviewComment]] | None = None,
+        allowed_pairs: list[tuple[ReviewComment, ReviewComment]] | None = None,
     ) -> Self:
         if matched_pairs is None:
             matched_pairs = match_comments(expected_comments, generated_comments)
         matched_count = len(matched_pairs)
-        precision, recall = precision_recall(matched_count, len(generated_comments), len(expected_comments))
+        # Allowed matches (arggo profile) leave both precision and recall:
+        # precision scores only the comments that claimed to find a gold-level
+        # issue, so the denominator drops the allowed ones; recall is untouched.
+        allowed_count = len(allowed_pairs) if allowed_pairs else 0
+        precision, recall = precision_recall(matched_count, len(generated_comments) - allowed_count, len(expected_comments))
 
         return cls(
             **cls._base_fields(context),
@@ -164,8 +173,9 @@ class CodeReviewResult(BaseEvaluationResult):
             generated_comments=generated_comments,
             valid_review_output=True,
             matched_comment_count=matched_count,
-            incorrect_comment_count=len(generated_comments) - matched_count,
+            incorrect_comment_count=len(generated_comments) - matched_count - allowed_count,
             missed_comment_count=len(expected_comments) - matched_count,
+            allowed_match_count=allowed_count,
             precision=precision,
             recall=recall,
             f1=f1_score(precision, recall),
@@ -197,6 +207,7 @@ class CodeReviewResult(BaseEvaluationResult):
             "matched_comment_count": self.matched_comment_count,
             "incorrect_comment_count": self.incorrect_comment_count,
             "missed_comment_count": self.missed_comment_count,
+            "allowed_match_count": self.allowed_match_count,
             "precision": round(self.precision, 3),
             "recall": round(self.recall, 3),
             "f1": round(self.f1, 3),
@@ -231,6 +242,14 @@ class CodeReviewResultSummary(EvaluationResultSummary):
     matched_comment_count: int = Field(default=0, ge=0)
     incorrect_comment_count: int = Field(default=0, ge=0)
     missed_comment_count: int = Field(default=0, ge=0)
+    allowed_match_count: int = Field(default=0, ge=0)
+
+    # Over-enforcement gate (reported separately so allowed-comment deductions
+    # cannot mask a noisy reviewer): clean tasks = entries with no expected
+    # comments; a pass is a valid review with zero false-positive comments.
+    clean_task_count: int = Field(default=0, ge=0)
+    clean_pass_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    mean_fp_per_clean_task: float = Field(default=0.0, ge=0.0)
 
     precision: float = Field(default=0.0, ge=0.0, le=1.0)
     recall: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -288,6 +307,12 @@ class CodeReviewResultSummary(EvaluationResultSummary):
             "|-------------:|-------------------------:|\n"
             f"| {self.severity_mae:.3f} | {valid_rate:.1f}% |\n"
             "\n"
+            "## Over-enforcement (arggo profile)\n"
+            "\n"
+            "| Allowed matches | Clean tasks | Clean-pass rate | Mean FP / clean task |\n"
+            "|----------------:|------------:|----------------:|---------------------:|\n"
+            f"| {self.allowed_match_count} | {self.clean_task_count} | {self.clean_pass_rate * 100:.1f}% | {self.mean_fp_per_clean_task:.2f} |\n"
+            "\n"
             f"{_METRIC_EXPLANATIONS}"
         )
 
@@ -333,6 +358,16 @@ class CodeReviewResultSummary(EvaluationResultSummary):
                 ["Severity MAE", "Valid review output rate"],
                 [f"{self.severity_mae:.3f}", f"{self.valid_review_output_rate * 100:.1f}%"],
             ),
+            _build_console_table(
+                "Over-enforcement (arggo profile)",
+                ["Allowed matches", "Clean tasks", "Clean-pass rate", "Mean FP / clean task"],
+                [
+                    str(self.allowed_match_count),
+                    str(self.clean_task_count),
+                    f"{self.clean_pass_rate * 100:.1f}%",
+                    f"{self.mean_fp_per_clean_task:.2f}",
+                ],
+            ),
             Panel(
                 _CONSOLE_METRIC_EXPLANATIONS,
                 title="📖 How to read these metrics",
@@ -355,8 +390,14 @@ class CodeReviewResultSummary(EvaluationResultSummary):
         matched_total: int = sum(r.matched_comment_count for r in code_review_results)
         incorrect_total: int = sum(r.incorrect_comment_count for r in code_review_results)
         missed_total: int = sum(r.missed_comment_count for r in code_review_results)
+        allowed_total: int = sum(r.allowed_match_count for r in code_review_results)
 
-        precision, recall = precision_recall(matched_total, generated_total, expected_total)
+        clean_results = [r for r in code_review_results if not r.expected_comments]
+        clean_pass_count: int = sum(1 for r in clean_results if r.valid_review_output and r.incorrect_comment_count == 0)
+        clean_pass_rate: float = clean_pass_count / len(clean_results) if clean_results else 0.0
+        mean_fp_per_clean: float = sum(r.incorrect_comment_count for r in clean_results) / len(clean_results) if clean_results else 0.0
+
+        precision, recall = precision_recall(matched_total, generated_total - allowed_total, expected_total)
         f1: float = f1_score(precision, recall)
         f_beta_05: float = f_beta_score(precision, recall, beta=0.5)
         f_beta_2: float = f_beta_score(precision, recall, beta=2.0)
@@ -390,6 +431,10 @@ class CodeReviewResultSummary(EvaluationResultSummary):
                 "matched_comment_count": matched_total,
                 "incorrect_comment_count": incorrect_total,
                 "missed_comment_count": missed_total,
+                "allowed_match_count": allowed_total,
+                "clean_task_count": len(clean_results),
+                "clean_pass_rate": round(clean_pass_rate, 3),
+                "mean_fp_per_clean_task": round(mean_fp_per_clean, 3),
                 "precision": round(precision, 3),
                 "recall": round(recall, 3),
                 "f1": round(f1, 3),

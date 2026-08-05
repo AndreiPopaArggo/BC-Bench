@@ -30,6 +30,12 @@ class EntryMetadata(BaseModel):
     area: str | None = None
     image_count: Annotated[int, Field(ge=0)] | None = None
     persona: str | None = None
+    # Arggo-profile pairing metadata (None on upstream entries): pair_id links a
+    # defect entry with its clean twin; discoverability records whether the
+    # conventions are stated in the workspace ("workspace" via a committed
+    # CONVENTIONS.md fixture) or only known to convention-aware agents ("plugin").
+    pair_id: str | None = None
+    discoverability: Literal["workspace", "plugin"] | None = None
 
 
 class BaseDatasetEntry(BaseModel):

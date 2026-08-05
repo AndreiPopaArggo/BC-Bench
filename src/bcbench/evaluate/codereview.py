@@ -35,6 +35,8 @@ class CodeReviewPipeline(EvaluationPipeline[CodeReviewEntry]):
         # Code-review base commits are pre-squash PR commits, so they might be missing from local dev setups.
         fetch_commit_if_missing(repo_path, entry.base_commit)
         setup_repo_prebuild(entry, repo_path)
+        if entry.fixture_patch:
+            self._commit_fixture(entry, repo_path)
         apply_patch(repo_path, entry.patch, f"{entry.instance_id} review patch")
         # Mark newly added files as intent-to-add so they appear in `git diff HEAD`;
         # all dataset patches are new-file diffs, which are otherwise untracked and invisible to the agent.
@@ -46,6 +48,23 @@ class CodeReviewPipeline(EvaluationPipeline[CodeReviewEntry]):
                 stderr=subprocess.PIPE,
                 check=True,
             )
+
+    def _commit_fixture(self, entry: CodeReviewEntry, repo_path: Path) -> None:
+        """Apply and commit supporting fixture files (e.g. CONVENTIONS.md).
+
+        Committing keeps fixtures visible as workspace context while excluding
+        them from the uncommitted diff the agent is asked to review.
+        """
+        assert entry.fixture_patch is not None
+        apply_patch(repo_path, entry.fixture_patch, f"{entry.instance_id} fixture patch")
+        subprocess.run(["git", "add", "-A"], cwd=repo_path, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+        subprocess.run(
+            ["git", "-c", "user.name=bcbench", "-c", "user.email=bcbench@localhost", "commit", "-m", f"{entry.instance_id} conventions fixture", "--no-verify"],
+            cwd=repo_path,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
 
     def setup(self, context: EvaluationContext[CodeReviewEntry]) -> None:
         self.setup_workspace(context.entry, context.repo_path)
@@ -76,18 +95,45 @@ class CodeReviewPipeline(EvaluationPipeline[CodeReviewEntry]):
                 structural_matches,
                 work_dir=context.repo_path,
             )
+            allowed_pairs = self._match_allowed_comments(context, generated_comments, validated_matches)
             result = CodeReviewResult.create(
                 context,
                 output=output,
                 expected_comments=context.entry.expected_comments,
                 generated_comments=generated_comments,
                 matched_pairs=validated_matches,
+                allowed_pairs=allowed_pairs,
             )
         logger.info(f"Parsed {len(result.generated_comments)} comments from {REVIEW_OUTPUT_FILE}")
         logger.info(
             f"Code review metrics: matched={result.matched_comment_count}, "
             f"incorrect={result.incorrect_comment_count}, missed={result.missed_comment_count}, "
+            f"allowed={result.allowed_match_count}, "
             f"precision={result.precision:.3f}, recall={result.recall:.3f}, f1={result.f1:.3f}"
         )
 
         self.save_result(context, result)
+
+    def _match_allowed_comments(
+        self,
+        context: EvaluationContext[CodeReviewEntry],
+        generated_comments: list[ReviewComment],
+        validated_matches: list[tuple[ReviewComment, ReviewComment]],
+    ) -> list[tuple[ReviewComment, ReviewComment]]:
+        """Match leftover generated comments against the entry's allowed_comments (arggo profile).
+
+        Runs AFTER gold matching so an allowed comment can never absorb a finding
+        that should have counted as a gold match. One-to-one: each allowed comment
+        neutralizes at most one generated comment; duplicates stay false positives.
+        """
+        if not context.entry.allowed_comments:
+            return []
+
+        remaining = list(generated_comments)
+        for _, generated in validated_matches:
+            remaining.remove(generated)
+        if not remaining:
+            return []
+
+        structural = match_comments(context.entry.allowed_comments, remaining)
+        return judge_comment_matches(structural, work_dir=context.repo_path)

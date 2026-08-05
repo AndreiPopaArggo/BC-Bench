@@ -54,6 +54,9 @@ prompt:
     /review
 
     Review only the uncommitted working-tree changes (git diff HEAD); do not compare commits such as HEAD~1..HEAD or origin/main.
+    {% if arggo_profile %}
+    This repository may document its coding conventions in a CONVENTIONS.md file at the repository root. If that file exists, review the changes against those conventions in addition to general AL quality.
+    {% endif %}
 
     Your only deliverable is a file named review.json in the repository root. You MUST write it before finishing; if you do not, your review is lost and counts as no output.
 

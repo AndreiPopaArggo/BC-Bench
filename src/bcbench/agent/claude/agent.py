@@ -27,6 +27,7 @@ def run_claude_code(
     al_mcp: bool = False,
     al_lsp: bool = False,
     container_name: str = "bcbench",
+    review_profile: str = "upstream",
 ) -> tuple[AgentMetrics | None, ExperimentConfiguration]:
     """Run Claude Code on a single dataset entry.
 
@@ -42,7 +43,7 @@ def run_claude_code(
 
     logger.info(f"Running Claude Code on: {entry.instance_id}")
 
-    prompt: str = build_prompt(entry, repo_path, claude_config, category, al_mcp=al_mcp)
+    prompt: str = build_prompt(entry, repo_path, claude_config, category, al_mcp=al_mcp, review_profile=review_profile)
     mcp_config_json, mcp_server_names = build_mcp_config(claude_config, entry, repo_path, al_mcp=al_mcp, container_name=container_name)
     lsp_plugin_dir: Path | None = build_al_lsp_plugin(entry, category, repo_path, AgentType.CLAUDE, al_lsp=al_lsp, container_name=container_name)
     instructions_enabled: bool = setup_instructions_from_config(claude_config, entry, repo_path, agent_type=AgentType.CLAUDE)

@@ -52,12 +52,15 @@ _SEVERITY_ALIASES: dict[str, Severity] = {
 class ReviewComment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    file: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*\.(al|json)$")]
+    file: Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9 ./_-]*\.(al|json|md)$")]
     line_start: Annotated[int, Field(ge=1)]
     line_end: Annotated[int, Field(ge=1)] | None = None
     domain: str | None = None
     body: Annotated[str, Field(min_length=1)]
     severity: Severity | None = None
+    # Arggo-profile provenance: versioned house-rule ID (e.g. "ARGGO.NAMING.PARAM_PREFIX").
+    # None for upstream comments; ignored by upstream tooling.
+    rule_id: str | None = None
 
     @field_validator("severity", mode="before")
     @classmethod
@@ -81,6 +84,12 @@ class CodeReviewEntry(RepoGroundedEntry):
     """Dataset entry for the code-review category."""
 
     expected_comments: list[ReviewComment] = Field(default_factory=list)
+    # Arggo-profile extensions (empty/None on upstream entries → behavior unchanged):
+    # findings that are defensible but optional — matching one is neither TP nor FP.
+    allowed_comments: list[ReviewComment] = Field(default_factory=list)
+    # Supporting workspace files (e.g. a CONVENTIONS.md the review should honor),
+    # committed during setup so they are visible context but NOT part of the reviewed diff.
+    fixture_patch: str | None = None
 
     def get_task(self) -> str:
         return self.patch
